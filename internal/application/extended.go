@@ -3,6 +3,7 @@ package application
 import (
 	"archive-release/internal/domain"
 	"archive-release/internal/release"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -299,4 +300,13 @@ func (s *Service) VerifySubmitted(id string, a release.Artifact) release.Verific
 		_ = s.repo.Save(c, ev)
 	}
 	return result
+}
+
+func (s *Service) VerifySubmittedContext(ctx context.Context, id string, a release.Artifact) release.VerificationResult {
+	select {
+	case <-ctx.Done():
+		return release.VerificationResult{Reason: "请求已取消"}
+	default:
+		return s.VerifySubmitted(id, a)
+	}
 }

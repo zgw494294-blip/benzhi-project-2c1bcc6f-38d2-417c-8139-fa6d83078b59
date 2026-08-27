@@ -236,7 +236,7 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request, id string) {
 		bad(w, e)
 		return
 	}
-	writeJSON(w, s.app.VerifySubmitted(id, a))
+	writeJSON(w, s.app.VerifySubmittedContext(r.Context(), id, a))
 }
 func decode(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
 func (s *Server) revision(w http.ResponseWriter, r *http.Request, id string) {
