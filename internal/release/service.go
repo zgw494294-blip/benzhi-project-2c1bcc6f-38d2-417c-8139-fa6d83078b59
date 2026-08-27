@@ -2,12 +2,19 @@ package release
 
 import (
 	"archive-release/internal/domain"
+	"sync"
 	"time"
 )
 
-type Service struct{ Key string }
+type Service struct {
+	Key               string
+	verificationMu    sync.RWMutex
+	verificationCache map[string]VerificationResult
+}
 
-func New(key string) *Service { return &Service{Key: key} }
+func New(key string) *Service {
+	return &Service{Key: key, verificationCache: make(map[string]VerificationResult)}
+}
 func (s *Service) Freeze(c *domain.ArchiveCase, actor string, atUnix int64) (ReleaseManifest, VerificationCredential, error) {
 	r := c.CurrentRevision()
 	at := timeFromUnix(atUnix)
