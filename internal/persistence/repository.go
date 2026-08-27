@@ -72,7 +72,7 @@ func (r *MemoryRepository) Save(c *domain.ArchiveCase, e domain.Event) error {
 func (r *MemoryRepository) Events(id string) []domain.Event {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return append([]domain.Event(nil), r.events[id]...)
+	return r.events[id]
 }
 func (r *MemoryRepository) FindCommand(k string) (any, bool) {
 	r.mu.RLock()
