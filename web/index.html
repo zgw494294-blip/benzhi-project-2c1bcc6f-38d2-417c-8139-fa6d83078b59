@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="扫描档案质检、复核与发布工作台">
+  <title>典藏扫描品发布核准台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="paper-noise" aria-hidden="true"></div>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="典藏扫描品发布核准台首页">
+      <span class="brand-mark">藏</span>
+      <span><strong>典藏扫描品</strong><small>发布核准台 · ARCHIVE RELEASE DESK</small></span>
+    </a>
+    <div class="service-state"><span class="pulse"></span> 本地服务已就绪</div>
+  </header>
+
+  <main class="shell">
+    <aside class="case-rail">
+      <div class="rail-heading">
+        <div><span class="eyebrow">CASE REGISTER</span><h1>案卷簿</h1></div>
+        <button id="new-case-button" class="icon-button" type="button" title="新建案卷">＋</button>
+      </div>
+      <button id="refresh-button" class="text-button" type="button">刷新案卷</button>
+      <div id="case-list" class="case-list" aria-live="polite"></div>
+      <form id="case-form" class="rail-form">
+        <h2>登记新案卷</h2>
+        <label>案卷标题<input name="title" required placeholder="如：敦煌文书·卷一"></label>
+        <label>馆藏单元<input name="archiveUnit" required placeholder="如：DHD-001"></label>
+        <label>创建者<input name="creator" required value="档案管理员"></label>
+        <input type="hidden" name="actor" value="档案管理员">
+        <input type="hidden" name="role" value="archivist">
+        <button class="primary-button" type="submit">建立案卷 <span>→</span></button>
+      </form>
+    </aside>
+
+    <section class="desk">
+      <div id="empty-state" class="empty-state">
+        <span class="folio">Ⅰ</span>
+        <p class="eyebrow">QUALITY EVIDENCE · INDEPENDENT REVIEW</p>
+        <h2>让每一页扫描件<br>都有据可查。</h2>
+        <p>从左侧登记或选择案卷，开始录入页级测量证据。系统会自动执行清晰度、倾斜、裁切与色标规则。</p>
+      </div>
+
+      <div id="case-workspace" class="case-workspace" hidden>
+        <div class="case-header">
+          <div>
+            <span id="case-unit" class="eyebrow"></span>
+            <h2 id="case-title"></h2>
+            <p id="case-meta"></p>
+          </div>
+          <div class="status-block"><span id="case-status" class="status-chip"></span><strong id="case-version"></strong></div>
+        </div>
+
+        <nav class="workflow-strip" aria-label="发布核准流程">
+          <span data-stage="draft"><i>01</i>测量</span><b></b>
+          <span data-stage="returned"><i>02</i>整改</span><b></b>
+          <span data-stage="review_pending"><i>03</i>复核</span><b></b>
+          <span data-stage="approved"><i>04</i>批准</span><b></b>
+          <span data-stage="frozen"><i>05</i>冻结</span>
+        </nav>
+
+        <div class="desk-grid">
+          <section class="sheet measure-sheet">
+            <div class="sheet-title"><span>01</span><div><p>SCAN REVISION</p><h3>修订与测量证据</h3></div></div>
+            <form id="revision-form">
+              <div class="field-row">
+                <label>提交人<input name="actor" required value="文物保护员"></label>
+                <label>文献年代<input name="period" required placeholder="如：清光绪"></label>
+              </div>
+              <div class="field-row four">
+                <label>页码<input name="pageNumber" required type="number" min="1" value="1"></label>
+                <label>清晰度<input name="clarity" required type="number" min="0" max="100" step="0.1" value="94"></label>
+                <label>倾斜 °<input name="skew" required type="number" min="0" max="45" step="0.1" value="0.8"></label>
+                <label>裁切完整度<input name="cropRatio" required type="number" min="0" max="1" step="0.01" value="0.99"></label>
+              </div>
+              <label class="check-label"><input name="colorTarget" type="checkbox" checked> 页面含标准色标</label>
+              <p class="form-hint">提交替代修订时，系统自动关联当前修订为 parentRevisionID 并重新执行规则。</p>
+              <button class="primary-button" type="submit">提交不可变修订 <span>→</span></button>
+            </form>
+          </section>
+
+          <section class="sheet evidence-sheet">
+            <div class="sheet-title"><span>02</span><div><p>QUALITY FINDINGS</p><h3>规则发现与整改</h3></div></div>
+            <div id="findings-summary" class="metric-row"></div>
+            <div id="findings-list" class="findings-list"><p class="muted">提交修订后显示规则发现。</p></div>
+          </section>
+
+          <section class="sheet review-sheet">
+            <div class="sheet-title"><span>03</span><div><p>INDEPENDENT REVIEW</p><h3>独立复核决定</h3></div></div>
+            <form id="review-form">
+              <label>复核员<input name="actor" required value="发布复核员"></label>
+              <label>复核决定<select name="approved"><option value="true">批准发布</option><option value="false">退回整改</option></select></label>
+              <label>复核意见<textarea name="note" rows="3" placeholder="退回时必须说明原因"></textarea></label>
+              <button class="outline-button" type="submit">提交复核决定</button>
+            </form>
+          </section>
+
+          <section class="sheet release-sheet">
+            <div class="sheet-title"><span>04</span><div><p>SEALED ARTIFACT</p><h3>冻结发布与验证</h3></div></div>
+            <p>冻结后案卷拒绝修改，并生成 canonical JSON 清单及绑定摘要的 HMAC 凭据。</p>
+            <div class="release-actions">
+              <button id="freeze-button" class="seal-button" type="button"><span>核</span>冻结并签发</button>
+              <button id="verify-button" class="outline-button" type="button">重新验证凭据</button>
+              <a id="manifest-link" class="text-link" href="#" hidden>下载发布清单 JSON ↗</a>
+            </div>
+            <pre id="verification-result" class="verification-result">等待冻结发布</pre>
+          </section>
+        </div>
+
+        <details class="timeline-panel">
+          <summary>审计时间线 <span id="event-count">0 条事件</span></summary>
+          <ol id="timeline"></ol>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

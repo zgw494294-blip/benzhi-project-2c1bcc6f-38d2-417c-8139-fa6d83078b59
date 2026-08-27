@@ -1,0 +1,74 @@
+[
+  {
+    "caseID": "case-1787815235114632170",
+    "title": "冲突",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:20:35.11463217Z",
+    "updatedAt": "2026-08-27T07:20:35.11463217Z",
+    "revisions": null
+  },
+  {
+    "caseID": "case-1787815235113488368",
+    "title": "自检案卷",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:20:35.113488368Z",
+    "updatedAt": "2026-08-27T07:20:35.113488368Z",
+    "revisions": null
+  },
+  {
+    "caseID": "case-1787815392691685409",
+    "title": "自检案卷",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:23:12.691685409Z",
+    "updatedAt": "2026-08-27T07:23:12.691685409Z",
+    "revisions": null
+  },
+  {
+    "caseID": "case-1787815392698101097",
+    "title": "冲突",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:23:12.698101097Z",
+    "updatedAt": "2026-08-27T07:23:12.698101097Z",
+    "revisions": null
+  },
+  {
+    "caseID": "case-1787815513750813581",
+    "title": "自检案卷",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:25:13.750813581Z",
+    "updatedAt": "2026-08-27T07:25:13.750813581Z",
+    "revisions": null
+  },
+  {
+    "caseID": "case-1787815513757131636",
+    "title": "冲突",
+    "archiveUnit": "SELF",
+    "creator": "selfcheck",
+    "status": "draft",
+    "currentRevisionID": "",
+    "version": 1,
+    "createdAt": "2026-08-27T07:25:13.757131636Z",
+    "updatedAt": "2026-08-27T07:25:13.757131636Z",
+    "revisions": null
+  }
+]

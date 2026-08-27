@@ -1,0 +1,152 @@
+{
+  "contract_version": "project-refill-scale-contract-v1",
+  "features": [
+    {
+      "name": "馆藏元数据规范化与重复案卷拦截",
+      "parent_required_feature": "创建扫描档案案卷并登记馆藏元数据",
+      "business_value": "在建档入口统一元数据格式并阻止同一馆藏单元重复建案，减少后续质检证据无法对应真实档案的风险。",
+      "behaviors": [
+        "创建案卷前对标题、馆藏单元和创建者执行去空格、大小写不敏感的规范化，并保留原始值用于展示。",
+        "按规范化馆藏单元和标题组合计算稳定元数据摘要，检测已存在的草稿、待整改、待复核或已发布案卷并返回冲突案卷标识。",
+        "重复检测命中时不写入 ArchiveCase 或 CaseCreated 事件；幂等键命中时原样返回原创建结果，避免重复请求制造新案卷。"
+      ],
+      "integration_steps": [
+        "在现有 POST /api/cases 请求解码后调用 internal/application 的建档用例，先执行元数据规范化和必填校验。",
+        "由 internal/domain 使用 NormalizeMetadata、MetadataDigest 生成比较键，internal/persistence 查询已有案卷并在冲突时返回可读错误。",
+        "仅在校验和重复检查通过后沿用现有 CreateCase 写入快照、追加 CaseCreated 事件，并让浏览器建档表单展示冲突案卷提示。"
+      ],
+      "acceptance_scenarios": [
+        "先创建馆藏单元为“ 甲 ”、标题为“地方志 ”的案卷，再以“甲”和“地方志”提交不同幂等键，接口返回冲突且 GET /api/cases 数量仍为 1。",
+        "重复 POST 使用同一 idempotencyKey 但提交不同标题时，两次响应的 caseID、version 和事件数量一致，未产生第二条 CaseCreated。"
+      ],
+      "runtime_flow": "案卷建档与修订测量",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"]
+    },
+    {
+      "name": "批量页级测量导入与事务性校验",
+      "parent_required_feature": "提交不可变扫描修订与页级质量测量证据",
+      "business_value": "让保护员一次提交整册扫描测量，同时保证页码、数值和父修订关系全部有效，避免半册证据进入质检流程。",
+      "behaviors": [
+        "接受现有修订入口的多页 JSON 测量批次，校验页码唯一且从 1 开始、测量值在清晰度 0-100、倾斜 0-45、裁切率 0-1 范围内。",
+        "批次校验失败时逐项返回页码和字段错误，保持当前修订、版本号和事件日志不变，不产生部分保存。",
+        "校验通过后按页码排序计算稳定 ContentDigest，保存不可变 ScanRevision 及 parentRevisionID，并依据阻断发现自动转入待整改或待复核。"
+      ],
+      "integration_steps": [
+        "扩展现有 POST /api/cases/{id}/revisions 的请求体解析，允许浏览器提交整册 pages 数组和可选 parentRevisionID。",
+        "internal/application 在 expectedVersion、角色和父修订检查后调用 internal/domain.ValidateRevision，并将所有错误聚合为批次响应。",
+        "internal/persistence 仅在整批通过后一次性保存案卷快照和 RevisionSubmitted 事件，前端刷新当前修订与页级结果。"
+      ],
+      "acceptance_scenarios": [
+        "提交包含 1、2、3 页且数值均在范围内的批次后，返回一个新 revisionID，当前案卷 revisions 只增加一条且 ContentDigest 在页顺序交换后保持一致。",
+        "提交含重复页码或 clarity=101 的批次时返回 400，案卷 version、currentRevisionID、快照内容和时间线均与提交前相同。"
+      ],
+      "runtime_flow": "案卷建档与修订测量",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"]
+    },
+    {
+      "name": "质量规则分布统计与页级发现查询",
+      "parent_required_feature": "执行确定性质量规则并生成分级检查发现",
+      "business_value": "将规则结果从单条列表提升为可筛选统计，帮助保护员优先处理阻断页并让复核员快速判断质量风险。",
+      "behaviors": [
+        "每次修订保存使用固定 RuleSetVersion 运行规则，按 ruleCode、severity、pageNumber 汇总 open 和 resolved 数量，并计算平均清晰度和最大倾斜。",
+        "提供按严重度、规则编码和页码过滤当前修订 Finding 的查询，过滤参数非法时返回明确校验错误而非静默忽略。",
+        "当规则输入相同，重复计算必须得到相同 FindingID、证据文本和排序；查询不存在案卷或无当前修订时返回 404 或空结果的明确语义。"
+      ],
+      "integration_steps": [
+        "在现有 POST /api/cases/{id}/revisions 规则评估完成后，由 internal/application 组装规则统计 DTO，并保持现有状态转换。",
+        "在 GET /api/cases/{id} 或新增 findings 查询参数中接入 internal/domain.EvaluateRules、Measure 和 Finding 字段过滤，沿用同源 JSON 响应。",
+        "internal/persistence 从已保存快照读取当前修订和事件，不重新修改历史 Finding；web 工作台增加阻断、提示、规则和页码筛选展示。"
+      ],
+      "acceptance_scenarios": [
+        "对含清晰度 70、倾斜 4 和色标缺失的两页修订查询统计，blocking、notices、ruleCode 分布与逐条 Finding 数量一致，平均清晰度和最大倾斜计算正确。",
+        "对同一 revisionID 重复请求 ruleCode=CLARITY&severity=blocking&Page=2，返回稳定排序的同一条 Finding；传入未知 severity 返回 400。"
+      ],
+      "runtime_flow": "规则发现与整改复验",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"]
+    },
+    {
+      "name": "整改批量登记与跨修订复验差异",
+      "parent_required_feature": "提交整改修订并复验直至阻断发现清零",
+      "business_value": "把多个页面整改作为一次可追踪操作，并证明新修订确实消除了旧阻断项，降低误标已整改导致的错误放行。",
+      "behaviors": [
+        "保护员可在一个 expectedVersion 下为当前修订选择多个 FindingID 登记整改说明，要求每条说明非空且 Finding 必须属于当前修订且处于 open。",
+        "批量登记采用全有或全无策略，任一 FindingID 不存在、已解决或角色不符时不改变任何 Finding、版本或状态。",
+        "提交替代修订后按 ruleCode 和页码对比父修订，新修订中仍存在的阻断项保持 open，只有规则复验不再产生的旧阻断项才标记 resolved，并记录 ResolvedBy、ResolvedAt 和差异摘要。"
+      ],
+      "integration_steps": [
+        "沿用 POST /api/cases/{id}/findings 和 POST /api/cases/{id}/revisions 两个现有入口，在 internal/transport 解码 findingID 列表与整改证据。",
+        "internal/application 先锁定案卷并校验角色、expectedVersion、当前修订和全部 Finding，再调用 internal/domain 的批量解析及父子修订差异逻辑。",
+        "internal/persistence 在一次 Save 中追加 FindingResolved 或 RevisionSubmitted 事件并更新快照，前端根据返回状态继续整改或进入 review_pending。"
+      ],
+      "acceptance_scenarios": [
+        "当前修订有两个 open 阻断项时一次提交两条非空整改说明，返回 version 递增 1、两个 Finding 均含解决人和时间，blockingOpen 变为 0 且状态为 review_pending。",
+        "批量请求混入不存在的 FindingID 时返回 400，两个原 Finding 仍为 open、version 不变且时间线没有新增整改事件；新修订复验仍存在 CLARITY 阻断时不得进入待复核。"
+      ],
+      "runtime_flow": "规则发现与整改复验",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"]
+    },
+    {
+      "name": "待复核队列与复核决定审计查询",
+      "parent_required_feature": "由独立复核员批准或退回发布申请",
+      "business_value": "让复核员按等待时间集中处理待复核案卷，并能在决定前后核对完整证据和责任链。",
+      "behaviors": [
+        "提供待复核案卷队列，按进入 review_pending 的时间和 UpdatedAt 排序，返回当前修订摘要、阻断数、提示数和提交者。",
+        "复核提交前再次校验案卷状态、无阻断发现、expectedVersion 以及 reviewer actor 不等于当前修订 SubmittedBy，防止队列数据过期或自审。",
+        "批准和退回均写入 ReviewDecided 事件；退回必须有原因并将案卷置为 returned，查询审计时展示 reviewer、note、时间和对应版本。"
+      ],
+      "integration_steps": [
+        "在现有 GET /api/cases 列表上增加 status=review_pending 队列过滤和分页参数，internal/transport 复用同源 API。",
+        "internal/application 通过 Search、Dashboard 和 View 组合队列 DTO，读取 internal/persistence 时间线并计算等待时长与发现汇总。",
+        "复核表单继续 POST /api/cases/{id}/review，服务完成独立性和状态校验后保存 ReviewDecided，页面刷新队列和审计时间线。"
+      ],
+      "acceptance_scenarios": [
+        "存在两条待复核案卷时，队列按 UpdatedAt 从旧到新返回，字段包含提交者和当前修订的 blocking/notices；传入 status=draft 不会混入队列。",
+        "提交者本人批准请求返回 400 且不写事件；不同 reviewer 批准后案卷为 approved，退回请求缺少 note 返回 400，带 note 时状态为 returned 且审计可查。"
+      ],
+      "runtime_flow": "独立复核决定",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"]
+    },
+    {
+      "name": "冻结前清单预览与摘要一致性锁",
+      "parent_required_feature": "冻结通过复核的修订并生成规范化发布清单",
+      "business_value": "让复核员在冻结前看到将要发布的规范化内容，并在并发修改或摘要变化时阻止生成过期清单。",
+      "behaviors": [
+        "对 approved 案卷提供只读清单预览，按 canonical manifest 字段生成 manifestID、revisionID、内容摘要和冻结时间候选值，不改变状态或事件。",
+        "冻结命令携带预览摘要和 expectedVersion，服务在写入屏障内重新计算当前修订摘要，任一不一致、存在阻断项或状态非 approved 时拒绝冻结。",
+        "冻结成功后将 ManifestID 写入案卷并保持 manifest 字段顺序和摘要可复算；冻结后的预览只允许读取同一发布物，任何修订提交均返回冻结错误。"
+      ],
+      "integration_steps": [
+        "在现有 GET /api/cases/{id}/manifest 和 POST /api/cases/{id}/freeze 入口增加 preview=true 与 previewDigest 请求字段解析。",
+        "internal/application 调用 internal/release.CanonicalManifest 生成预览并通过 internal/domain.IsPublishable、CanFreeze 校验状态和阻断发现。",
+        "冻结时由 internal/persistence 一次保存状态、ManifestID 和 CaseFrozen 事件，web 工作台在冻结按钮旁显示预览摘要并处理冲突错误。"
+      ],
+      "acceptance_scenarios": [
+        "approved 案卷请求清单预览返回稳定的 manifestID、revisionID 和 contentDigest，随后用相同 expectedVersion 与摘要冻结成功且 GET manifest 内容一致。",
+        "预览后提交了新版本或摘要被篡改时，冻结返回版本冲突或摘要不一致，案卷仍为 approved、没有 CaseFrozen 事件且不存在可下载凭据。"
+      ],
+      "runtime_flow": "冻结发布与凭据验证",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/release", "internal/persistence"]
+    },
+    {
+      "name": "发布物打包下载与多来源凭据核验",
+      "parent_required_feature": "下载并验证发布清单与凭据完整性",
+      "business_value": "为归档交接提供一次性可保存的清单、凭据和摘要包，并支持重新提交下载内容进行篡改检测。",
+      "behaviors": [
+        "冻结案卷提供 artifact 下载响应，包含 manifest、credential、digest 和 schemaVersion，字段使用稳定 JSON 编码并拒绝草稿或未冻结案卷。",
+        "验证接口既可验证服务器目录中的发布物，也可接收下载后提交的 manifest、credential 和 digest，逐项检查标识、摘要、算法和 HMAC 签名。",
+        "验证失败返回 valid=false 及具体原因（摘要缺失、清单不匹配、签名不匹配或发布物不存在），验证成功返回复算摘要，并将验证动作追加到该案卷审计时间线。"
+      ],
+      "integration_steps": [
+        "扩展现有 GET /api/cases/{id}/manifest、GET /api/cases/{id}/verify 入口，增加 /artifact 下载和可选 JSON 验证请求体。",
+        "internal/application 从 release.Catalog 取出 Artifact，调用 internal/release.ValidateArtifact、ManifestDigest 和 Verify，并校验案卷冻结状态。",
+        "internal/persistence 保存验证成功或失败的审计事件，浏览器工作台提供下载链接和粘贴/上传后重新验证结果。"
+      ],
+      "acceptance_scenarios": [
+        "冻结案卷请求 /artifact 得到包含 manifest、credential、digest 的 JSON 包，将其原样提交验证返回 valid=true 且 digest 与包内一致。",
+        "修改下载包中的 contentDigest 或 signature 后提交验证，返回 valid=false 和明确不匹配原因，原冻结案卷及其清单内容不被改变；未冻结案卷下载返回 404 或 400。"
+      ],
+      "runtime_flow": "冻结发布与凭据验证",
+      "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/release", "internal/persistence"]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "contract_version": "project-refill-project-plan-contract-v7",
+  "project_name": "典藏扫描品发布核准台",
+  "project_tier": "standard",
+  "interface_kind": "web_ui",
+  "summary": "档案管理员为扫描档案建立质检证据、整改问题并经复核后发布。",
+  "primary_users": ["档案管理员", "文物保护员", "发布复核员"],
+  "interfaces": ["浏览器工作台（原生 HTML/CSS/JavaScript）", "同源 JSON API"],
+  "required_features": [
+    "创建扫描档案案卷并登记馆藏元数据",
+    "提交不可变扫描修订与页级质量测量证据",
+    "执行确定性质量规则并生成分级检查发现",
+    "提交整改修订并复验直至阻断发现清零",
+    "由独立复核员批准或退回发布申请",
+    "冻结通过复核的修订并生成规范化发布清单",
+    "签发绑定清单摘要的可验证发布凭据",
+    "下载并验证发布清单与凭据完整性"
+  ],
+  "workflows": ["案卷建档→修订测量→规则发现→整改复验→独立复核→冻结清单→凭据签发→下载验证"],
+  "acceptance_commands": [
+    {"argv": ["go", "test", "./..."], "working_directory": "."},
+    {"argv": ["go", "run", ".", "-addr=127.0.0.1:19081", "-selfcheck"], "working_directory": "."}
+  ],
+  "diversity_signature": {
+    "domain": "地方志扫描档案的质量放行核验，围绕单个扫描案卷完成元数据登记、页级质检、整改、独立复核、冻结发布清单及凭据验证，排除交易和常见管理平台主题。",
+    "workflow": "档案管理员建案并提交扫描修订，保护员录入测量触发规则发现并整改，独立复核员批准后冻结清单、签发凭据，用户下载并验证后终止。",
+    "interface": "原生响应式浏览器工作台配合同源 JSON API，页面展示状态进度、页级测量、发现整改、复核、清单下载和凭据验证，静态资源由 Go 直接提供。",
+    "concurrency": "单进程内按案卷聚合锁串行处理写命令，expectedVersion 防止过期提交，idempotencyKey 重放原结果；读请求读取原子快照，自检在有界超时中通过真实回环 HTTP 客户端完成闭环。",
+    "persistence": "本地 JSON Lines 事件日志加原子替换快照；事件含 schemaVersion、seq、prevDigest、digest，启动校验摘要链并重放，selfcheck 使用内存仓储，正常运行使用可配置数据目录。",
+    "integration": "无外部系统。浏览器只访问同源 Go 服务，证据与事件存于本地文件；发布清单为可下载 JSON，凭据使用本地 HMAC 密钥签发和验证。"
+  },
+  "implementation": {
+    "architecture": "采用单进程分层结构：transport 处理 HTTP、HTML 和 JSON；application 编排用例、角色授权、expectedVersion 与幂等；domain 定义案卷聚合、状态机、规则和事件；persistence 负责事件日志、快照、重放；release 负责规范化清单和 HMAC 凭据。依赖方向为 transport -> application -> domain，application 通过接口依赖 persistence 与 release，domain 不依赖基础设施。Clock 接口注入时间，清单使用 canonical JSON；启动先加载配置、恢复并校验仓储，再注册路由，-selfcheck 在同一 HTTP 边界执行并退出。",
+    "data_entities": [
+      {"name": "ArchiveCase", "purpose": "待放行扫描案卷的聚合根，保存当前状态、修订指针和并发版本。", "fields": ["caseID", "title", "archiveUnit", "creator", "status", "currentRevisionID", "version", "createdAt", "updatedAt"]},
+      {"name": "ScanRevision", "purpose": "不可变扫描修订及页级测量证据，用于规则复算和整改追踪。", "fields": ["revisionID", "caseID", "parentRevisionID", "submittedBy", "submittedAt", "metadata", "pages", "ruleSetVersion", "contentDigest"]},
+      {"name": "Finding", "purpose": "规则产生的质量发现，记录严重度、证据和整改结果。", "fields": ["findingID", "revisionID", "pageNumber", "ruleCode", "severity", "evidence", "status", "resolutionNote", "resolvedBy", "resolvedAt"]},
+      {"name": "ReleaseManifest", "purpose": "冻结后确定性生成的发布清单，标识发布来源和内容摘要。", "fields": ["manifestID", "caseID", "revisionID", "canonicalJSON", "contentDigest", "frozenAt", "credentialID"]},
+      {"name": "VerificationCredential", "purpose": "绑定清单摘要的 HMAC 凭据，供下载者验证完整性。", "fields": ["credentialID", "manifestID", "issuedTo", "issuedAt", "algorithm", "signature"]}
+    ],
+    "modules": [
+      {"package_path": "internal/transport", "responsibility": "HTTP 传输、浏览器界面、配置启动与自检", "required_behaviors": ["提供浏览器单页工作台、静态资源和状态查询视图", "实现案卷、修订、发现、整改、复核、冻结、清单和验证 HTTP 路由并统一错误映射", "解析 -addr、PORT、-data-dir、-selfcheck、RELEASE_HMAC_KEY，默认监听 127.0.0.1:19081", "在 -selfcheck 下以有界 context 驱动真实回环请求并检查冲突和幂等行为"], "dependencies": ["internal/domain"], "target_go_lines": 480},
+      {"package_path": "internal/application", "responsibility": "应用服务、授权、并发控制和幂等", "required_behaviors": ["编排创建案卷、提交修订、整改、复核、冻结和验证用例", "校验角色、actor 分离、expectedVersion、idempotencyKey 和状态机前置条件", "组装当前状态、发现、审计和发布 DTO 供页面及 API 使用"], "dependencies": ["internal/domain", "internal/persistence", "internal/release"], "target_go_lines": 450},
+      {"package_path": "internal/domain", "responsibility": "核心业务模型、质量规则和事件", "required_behaviors": ["定义 ArchiveCase 聚合、状态枚举、ScanRevision、Finding 和 ReviewDecision 及合法转移", "校验页码、元数据和测量范围，执行清晰度、倾斜、裁切、色标规则并生成确定性发现", "生成带 seq、actor、role、commandKey 的领域事件并拒绝冻结后的修改"], "dependencies": [], "target_go_lines": 520},
+      {"package_path": "internal/persistence", "responsibility": "本地持久化、恢复与完整性保护", "required_behaviors": ["追加带摘要链的 JSON Lines 事件并执行快照原子替换", "提供文件版和内存版 Repository，支持重放、幂等响应查询和审计时间线", "启动时检测损坏记录并向就绪状态报告，写入时保证事件与快照一致"], "dependencies": ["internal/domain"], "target_go_lines": 420},
+      {"package_path": "internal/release", "responsibility": "发布清单、凭据签发与验证", "required_behaviors": ["从冻结聚合按固定字段顺序生成 canonical manifest 和 contentDigest", "使用 RELEASE_HMAC_KEY 签发 VerificationCredential，并校验清单摘要与签名", "提供清单下载和验证结果模型，确保冻结后发布物可复算"], "dependencies": ["internal/domain"], "target_go_lines": 330}
+    ],
+    "runtime_flows": [
+      {"name": "案卷建档与修订测量", "entrypoint": "POST /api/cases", "feature_coverage": [0, 1], "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"], "steps": ["档案管理员提交标题、馆藏单元和元数据，服务创建 ArchiveCase 并记录事件。", "档案管理员提交不可变 ScanRevision，系统校验父修订、页码和元数据并保存。", "保护员补充每页清晰度、倾斜、裁切、色标证据，形成可供规则检查的测量记录。"]},
+      {"name": "规则发现与整改复验", "entrypoint": "POST /api/cases/{id}/revisions", "feature_coverage": [2, 3], "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"], "steps": ["规则引擎按版本化阈值生成阻断或提示级 Finding，并更新案卷状态。", "保护员提交整改说明和替代修订，系统保留 parentRevisionID，重新测量并标记已解决发现。", "全部阻断项清零后案卷进入 review_pending，否则返回带原因的整改列表。"]},
+      {"name": "独立复核决定", "entrypoint": "POST /api/cases/{id}/review", "feature_coverage": [4], "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/persistence"], "steps": ["发布复核员读取修订、发现、整改证据和审计时间线并提交批准或退回。", "服务强制 reviewer actor 不得等于修订提交者，退回必须填写原因，批准进入 approved。", "复核决定追加 ReviewDecided 事件并返回下一步冻结操作。"]},
+      {"name": "冻结发布与凭据验证", "entrypoint": "POST /api/cases/{id}/freeze", "feature_coverage": [5, 6, 7], "module_paths": ["internal/transport", "internal/application", "internal/domain", "internal/release", "internal/persistence"], "steps": ["approved 案卷在写屏障内确认无阻断发现后生成 canonical ReleaseManifest 并原子保存冻结状态。", "release 使用 RELEASE_HMAC_KEY 签发凭据，提供清单 JSON 和验证文本下载。", "用户调用 verify 重新计算摘要和签名，返回 valid 或 invalid 原因并记录验证事件，冻结案卷拒绝修改。"]}
+    ]
+  }
+}
